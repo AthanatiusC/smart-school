@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/AthanatiusC/smart-school/facerecog/controller"
+	"github.com/AthanatiusC/smart-school/facerecog/controller/face"
 	"github.com/AthanatiusC/smart-school/facerecog/model"
 	"github.com/hybridgroup/mjpeg"
 	"go.mongodb.org/mongo-driver/bson"
@@ -26,6 +27,7 @@ var (
 func streamCamera(camera model.Camera) {
 	img := gocv.NewMat()
 	defer img.Close()
+	net := gocv.ReadNetFromCaffe("model\\deploy.prototxt", "model\\res10_300x300_ssd_iter_140000.caffemodel")
 
 	for {
 		if ok := webcam.Read(&img); !ok {
@@ -35,19 +37,19 @@ func streamCamera(camera model.Camera) {
 		if img.Empty() {
 			continue
 		}
-		// size := gocv.GetTextSize("Human", gocv.FontHersheyPlain, 1.2, 2)
-		pt := image.Pt(100, 100)
+		pt := image.Pt(10, 50)
 		gocv.PutText(&img, "Description : "+camera.Description, pt, gocv.FontHersheyPlain, 1.2, color.RGBA{0, 0, 255, 0}, 2)
+		img = face.Detect(img, net)
 		buf, _ := gocv.IMEncode(".jpg", img)
 		stream.UpdateJPEG(buf)
 	}
 }
 
 func captureCamera(camera model.Camera) model.Camera {
-	webcam, err = gocv.OpenVideoCapture(int(camera.DeviceID))
+	// webcam, err = gocv.OpenVideoCapture(int(camera.DeviceID))
+	webcam, err = gocv.OpenVideoCapture("rtsp://admin:AWPZEO@192.168.1.64/h264_stream")
 	if err != nil {
 		log.Printf("Device Unavailable: %v\n", camera.ID)
-
 	}
 	camera.Camera = webcam
 	return camera
@@ -57,6 +59,7 @@ func InitCamera() {
 	host := "localhost:2020"
 
 	cameras := getcamerasdetail()
+	// cameras := []model.Camera{}
 
 	for _, camera := range cameras {
 		camera = captureCamera(camera)

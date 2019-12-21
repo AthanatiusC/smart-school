@@ -15,10 +15,12 @@ type Face struct {
 
 //Payload struct used to move around arguments
 type Payload struct {
-	CaffeModel gocv.Net
-	Image      gocv.Mat
-	Result     gocv.Mat
-	Name       string
+	CaffeModelPath  string
+	CaffeConfigPath string
+	CaffeNet        gocv.Net
+	Image           gocv.Mat
+	Result          gocv.Mat
+	Name            string
 }
 
 //Camera struct used to identify Camera Initialization

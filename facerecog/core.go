@@ -9,7 +9,6 @@ import (
 
 func main() {
 	go camera.InitCamera()
-
 	router := mux.NewRouter()
 	router.Headers("Content-Type", "Application/JSON")
 
