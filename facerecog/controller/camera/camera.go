@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/AthanatiusC/smart-school/facerecog/controller"
-	"github.com/AthanatiusC/smart-school/facerecog/controller/face"
+	// "github.com/AthanatiusC/smart-school/facerecog/controller/face"
 	"github.com/AthanatiusC/smart-school/facerecog/model"
 	"github.com/hybridgroup/mjpeg"
 	"go.mongodb.org/mongo-driver/bson"
@@ -16,18 +16,36 @@ import (
 	"image/color"
 	"net/http"
 	"os"
+	"time"
 )
 
 var (
-	err    error
-	webcam *gocv.VideoCapture
-	stream *mjpeg.Stream
+	err        error
+	webcam     *gocv.VideoCapture
+	stream     *mjpeg.Stream
+	facestream *mjpeg.Stream
 )
+
+func min(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
+}
 
 func streamCamera(camera model.Camera) {
 	img := gocv.NewMat()
+	face := gocv.NewMat()
 	defer img.Close()
-	net := gocv.ReadNetFromCaffe("model\\deploy.prototxt", "model\\res10_300x300_ssd_iter_140000.caffemodel")
+	defer face.Close()
+	net := gocv.ReadNetFromCaffe("model\\deploy.prototxt", "model\\recognizer.caffemodel")
 
 	for {
 		if ok := webcam.Read(&img); !ok {
@@ -39,15 +57,74 @@ func streamCamera(camera model.Camera) {
 		}
 		pt := image.Pt(10, 50)
 		gocv.PutText(&img, "Description : "+camera.Description, pt, gocv.FontHersheyPlain, 1.2, color.RGBA{0, 0, 255, 0}, 2)
-		img = face.Detect(img, net)
+
+		green := color.RGBA{0, 255, 0, 0}
+		if img.Empty() {
+			return
+		}
+		W := float32(img.Cols())
+		H := float32(img.Rows())
+
+		// convert image Mat to 96x128 blob that the detector can analyze
+		// blob := gocv.BlobFromImage(img, 1.0, image.Pt(128, 96), gocv.NewScalar(104.0, 177.0, 123.0, 0), false, false)
+		blob := gocv.BlobFromImage(img, 1.0, image.Pt(300, 300), gocv.NewScalar(104.0, 177.0, 123.0, 0), false, false)
+		defer blob.Close()
+
+		// feed the blob into the classifier
+		net.SetInput(blob, "data")
+
+		// run a forward pass through the network
+		detBlob := net.Forward("detection_out")
+		defer detBlob.Close()
+		detections := gocv.GetBlobChannel(detBlob, 0, 0)
+
+		defer detections.Close()
+
+		for r := 0; r < detections.Rows(); r++ {
+			face = gocv.NewMat()
+			// you would want the classid for general object detection,
+			// but we do not need it here.
+			// classid := detections.GetFloatAt(r, 1)
+
+			confidence := detections.GetFloatAt(r, 2)
+			if confidence < 0.5 {
+				continue
+			}
+
+			left := detections.GetFloatAt(r, 3) * W
+			top := detections.GetFloatAt(r, 4) * H
+			right := detections.GetFloatAt(r, 5) * W
+			bottom := detections.GetFloatAt(r, 6) * H
+			gocv.Circle(&img, image.Pt(int(right), int(top)), 10, green, 5)
+			gocv.Circle(&img, image.Pt(int(left), int(top)), 10, green, 5)
+			gocv.Circle(&img, image.Pt(int(right), int(bottom)), 10, green, 5)
+			gocv.Circle(&img, image.Pt(int(left), int(bottom)), 10, green, 5)
+			gocv.Circle(&img, image.Pt(int(left), int(bottom)), 10, green, 5)
+			gocv.Circle(&img, image.Pt((int(left)+int(right))/2, (int(bottom)+int(top))/2), 10, green, 5)
+
+			// scale to video size:
+			left = min(max(0, left), W-1)
+			right = min(max(0, right), W-1)
+			bottom = min(max(0, bottom), H-1)
+			top = min(max(0, top), H-1)
+
+			// draw it
+			rect := image.Rect(int(left), int(top), int(right), int(bottom))
+			face = img.Region(rect)
+			face.Close()
+
+			// gocv.Circle(&img, top, 5, color.RGBA{0, 0, 255, 0}, 2)
+			// gocv.Rectangle(&img, rect, green, 3)
+		}
+
 		buf, _ := gocv.IMEncode(".jpg", img)
 		stream.UpdateJPEG(buf)
 	}
 }
 
 func captureCamera(camera model.Camera) model.Camera {
-	// webcam, err = gocv.OpenVideoCapture(int(camera.DeviceID))
-	webcam, err = gocv.OpenVideoCapture("rtsp://admin:AWPZEO@192.168.1.64/h264_stream")
+	webcam, err = gocv.OpenVideoCapture(int(camera.DeviceID))
+	// webcam, err = gocv.OpenVideoCapture("rtsp://admin:AWPZEO@192.168.1.64/h264_stream")
 	if err != nil {
 		log.Printf("Device Unavailable: %v\n", camera.ID)
 	}
@@ -58,16 +135,25 @@ func captureCamera(camera model.Camera) model.Camera {
 func InitCamera() {
 	host := "localhost:2020"
 
+	for i := 0; i < 3; i++ {
+		log.Println("Benchmaring...")
+		start := time.Now()
+		getcamerasdetail()
+		log.Println("Fetching result : " + time.Since(start).String())
+	}
 	cameras := getcamerasdetail()
+
 	// cameras := []model.Camera{}
 
 	for _, camera := range cameras {
 		camera = captureCamera(camera)
 		defer camera.Camera.Close()
 		stream = mjpeg.NewStream()
+		facestream = mjpeg.NewStream()
 		go streamCamera(camera)
 		log.Println("Camera " + camera.ID.String() + " Started")
-		http.Handle("/"+strconv.Itoa(0), stream)
+		http.Handle("/"+strconv.Itoa(camera.DeviceID), stream)
+		http.Handle("/"+strconv.Itoa(camera.DeviceID)+"/face", stream)
 	}
 	// start http server
 	log.Println("Camera Server : http://localhost:" + host)
