@@ -24,6 +24,11 @@ var (
 	webcam     *gocv.VideoCapture
 	stream     *mjpeg.Stream
 	facestream *mjpeg.Stream
+	left       float32
+	top        float32
+	right      float32
+	bottom     float32
+	buf        []byte
 )
 
 func min(a, b float32) float32 {
@@ -79,9 +84,8 @@ func streamCamera(camera model.Camera) {
 		detections := gocv.GetBlobChannel(detBlob, 0, 0)
 
 		defer detections.Close()
-
+		face = gocv.NewMat()
 		for r := 0; r < detections.Rows(); r++ {
-			face = gocv.NewMat()
 			// you would want the classid for general object detection,
 			// but we do not need it here.
 			// classid := detections.GetFloatAt(r, 1)
@@ -91,16 +95,16 @@ func streamCamera(camera model.Camera) {
 				continue
 			}
 
-			left := detections.GetFloatAt(r, 3) * W
-			top := detections.GetFloatAt(r, 4) * H
-			right := detections.GetFloatAt(r, 5) * W
-			bottom := detections.GetFloatAt(r, 6) * H
-			gocv.Circle(&img, image.Pt(int(right), int(top)), 10, green, 5)
-			gocv.Circle(&img, image.Pt(int(left), int(top)), 10, green, 5)
-			gocv.Circle(&img, image.Pt(int(right), int(bottom)), 10, green, 5)
-			gocv.Circle(&img, image.Pt(int(left), int(bottom)), 10, green, 5)
-			gocv.Circle(&img, image.Pt(int(left), int(bottom)), 10, green, 5)
-			gocv.Circle(&img, image.Pt((int(left)+int(right))/2, (int(bottom)+int(top))/2), 10, green, 5)
+			left = detections.GetFloatAt(r, 3) * W
+			top = detections.GetFloatAt(r, 4) * H
+			right = detections.GetFloatAt(r, 5) * W
+			bottom = detections.GetFloatAt(r, 6) * H
+			gocv.Circle(&img, image.Pt(int(right), int(top)), 5, green, 5)
+			gocv.Circle(&img, image.Pt(int(left), int(top)), 5, green, 5)
+			gocv.Circle(&img, image.Pt(int(right), int(bottom)), 5, green, 5)
+			gocv.Circle(&img, image.Pt(int(left), int(bottom)), 5, green, 5)
+			gocv.Circle(&img, image.Pt(int(left), int(bottom)), 5, green, 5)
+			gocv.Circle(&img, image.Pt((int(left)+int(right))/2, (int(bottom)+int(top))/2), 5, green, 5)
 
 			// scale to video size:
 			left = min(max(0, left), W-1)
@@ -109,15 +113,15 @@ func streamCamera(camera model.Camera) {
 			top = min(max(0, top), H-1)
 
 			// draw it
-			rect := image.Rect(int(left), int(top), int(right), int(bottom))
-			face = img.Region(rect)
-			face.Close()
+			// rect := image.Rect(int(left), int(top), int(right), int(bottom))
+			// face = img.Region(rect)
+			// face.Close()
 
 			// gocv.Circle(&img, top, 5, color.RGBA{0, 0, 255, 0}, 2)
 			// gocv.Rectangle(&img, rect, green, 3)
 		}
 
-		buf, _ := gocv.IMEncode(".jpg", img)
+		buf, _ = gocv.IMEncode(".jpg", img)
 		stream.UpdateJPEG(buf)
 	}
 }
@@ -133,7 +137,7 @@ func captureCamera(camera model.Camera) model.Camera {
 }
 
 func InitCamera() {
-	host := "localhost:2020"
+	host := ":2020"
 
 	for i := 0; i < 3; i++ {
 		log.Println("Benchmaring...")
@@ -156,7 +160,7 @@ func InitCamera() {
 		http.Handle("/"+strconv.Itoa(camera.DeviceID)+"/face", stream)
 	}
 	// start http server
-	log.Println("Camera Server : http://localhost:" + host)
+	log.Println("Camera Server : http://" + host)
 	log.Fatal(http.ListenAndServe(host, nil))
 	os.Exit(0)
 }
